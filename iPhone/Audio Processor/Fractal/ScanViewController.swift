@@ -11,10 +11,19 @@ import UIKit
 import AVFoundation
 import CoreBluetooth
 
-class ScanViewController: UIViewController, AVAudioRecorderDelegate, AVAudioPlayerDelegate, CBPeripheralManagerDelegate {
+class ScanViewController: UIViewController, AVAudioRecorderDelegate,
+        AVAudioPlayerDelegate, CBPeripheralManagerDelegate {
+    
+    var currentScanMode = "suspected"
+    
+    var suspectedRecordingExists =  false
+    var contralateralRecordingExists =  false
+    
+    var teal = UIColor(red: 0.0, green: 0.569, blue: 0.575, alpha: 1.0)
+    var reddish = UIColor(red: 1.00, green: 0.149, blue: 0.0, alpha: 1.0)
     
     // how long each recording should be
-    let recordingSeconds = 5.0
+    var recordingSeconds = 15.0
     
     @IBOutlet weak var trackIdSegControl: UISegmentedControl!
     @IBOutlet weak var titleLabel: UILabel!
@@ -22,6 +31,7 @@ class ScanViewController: UIViewController, AVAudioRecorderDelegate, AVAudioPlay
     @IBOutlet weak var recordButton: UIButton!
     @IBOutlet weak var playButton: UIButton!
     @IBOutlet weak var postButton: UIButton!
+    @IBOutlet weak var calculateTransmissionRateButton: UIButton!
     
     // the scan button should perform recording, playback, and post
     @IBOutlet weak var scanButton: UIButton!
@@ -32,11 +42,14 @@ class ScanViewController: UIViewController, AVAudioRecorderDelegate, AVAudioPlay
     var peripheral: CBPeripheral!
     private var consoleAsciiText: NSAttributedString? = NSAttributedString(string: "")
     
-    
     var isRecording = false
     var audioRecorder: AVAudioRecorder?
     var player : AVAudioPlayer?
     var recordingExists = false
+    
+    var suspectedScanComplete = false
+    var contralateralScanComplete = false
+    
     
 //    var recordingSession: AVAudioSession!
 //    var audioRecorder: AVAudioRecorder!
@@ -50,6 +63,8 @@ class ScanViewController: UIViewController, AVAudioRecorderDelegate, AVAudioPlay
         // bluetooth
         self.navigationItem.backBarButtonItem = UIBarButtonItem(title:"Back", style:.plain, target:nil, action:nil)
         
+        self.navigationItem.title = "Scan"
+        
         // Asking user permission for accessing Microphone
         AVAudioSession.sharedInstance().requestRecordPermission () {
             [unowned self] allowed in
@@ -61,6 +76,9 @@ class ScanViewController: UIViewController, AVAudioRecorderDelegate, AVAudioPlay
             }
         }
         print(getAudioFileUrl())
+        
+        buttonStackView.arrangedSubviews[0].isHidden = true
+        buttonStackView.arrangedSubviews[1].isHidden = true
         
         // bluetooth
         if isUsingBluetooth {
@@ -118,19 +136,12 @@ class ScanViewController: UIViewController, AVAudioRecorderDelegate, AVAudioPlay
     // MARK: not Bluetooth
 
     @IBAction func debugButtonPressed(_ sender: UIButton) {
-        toggleDebug()
+        UIView.animate(withDuration: 0.5, animations: {
+            self.buttonStackView.arrangedSubviews[0].isHidden = !self.buttonStackView.arrangedSubviews[0].isHidden
+            
+        })
     }
     
-    func toggleDebug() {
-        for i in stride(from: 0, through: 2, by: 1) {
-            UIView.animate(withDuration: 0.5, animations: {
-                self.buttonStackView.arrangedSubviews[i].isHidden = !self.buttonStackView.arrangedSubviews[i].isHidden
-                
-            })
-        }
-    }
-
-
     func setUpUI() {
         print("I ain't needa do nothin")
     }
@@ -162,7 +173,11 @@ class ScanViewController: UIViewController, AVAudioRecorderDelegate, AVAudioPlay
 //
 //        }.resume()
 //    }
-
+    
+    @IBAction func recordingTypeChanges(_ sender: UISegmentedControl) {
+        currentScanMode = sender.titleForSegment(at: sender.selectedSegmentIndex)!
+    }
+    
     @IBAction func recordButtonWasPressed(_ sender: UIButton) {
         if isRecording { 
             sender.setTitle("record", for: .normal)
@@ -218,7 +233,7 @@ class ScanViewController: UIViewController, AVAudioRecorderDelegate, AVAudioPlay
             
             //5. Changing record icon to stop icon
             isRecording = true
-            playButton.isEnabled = false
+//            playButton.isEnabled = false
         }
         catch let error {
             print("ERROR in startRecording")
@@ -232,14 +247,25 @@ class ScanViewController: UIViewController, AVAudioRecorderDelegate, AVAudioPlay
         audioRecorder?.stop()
         isRecording = false
         recordingExists = true
+        
+        switch currentScanMode {
+        case "suspected":
+            suspectedRecordingExists = true
+        default:
+            contralateralRecordingExists = true
+        }
     }
     
     // Path for saving/retreiving the audio file
     func getAudioFileUrl() -> URL{
         let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
         let docsDirect = paths[0]
-        let audioUrl = docsDirect.appendingPathComponent("recording.m4a")
+        let audioUrl = docsDirect.appendingPathComponent(currentScanMode + ".m4a")
         return audioUrl
+    }
+    
+    @IBAction func playbackAction(_ sender: UIButton) {
+        playSound()
     }
     
     func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
@@ -248,7 +274,7 @@ class ScanViewController: UIViewController, AVAudioRecorderDelegate, AVAudioPlay
         } else {
             // Recording interrupted by other reasons like call coming, reached time limit.
         }
-        playButton.isEnabled = true
+        //playButton.isEnabled = true
     }
     
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
@@ -289,19 +315,34 @@ class ScanViewController: UIViewController, AVAudioRecorderDelegate, AVAudioPlay
         let stringToSend = String(describing: trackIdSegControl.selectedSegmentIndex)
         writeValue(data: stringToSend)
     }
+    @IBAction func calculateTransmissionRateAction(_ sender: UIButton) {
+        self.titleLabel.text = "Calculating transmission rate"
+        postToHeroku()
+    }
     
     @IBAction func scanButtonPressed(_ sender: UIButton) {
         titleLabel.text = "Scan in progress"
+        imageView.image = UIImage()
         startRecording()
         
         if isUsingBluetooth {
             startSelectedSoundFile()
         }
         
+        if (trackIdSegControl.selectedSegmentIndex == 0) {
+            recordingSeconds = 5
+        }
+        
+        else if (trackIdSegControl.selectedSegmentIndex == 1) {
+            recordingSeconds = 15
+        }
+        
         DispatchQueue.main.asyncAfter(deadline: .now() + recordingSeconds) {
             self.finishRecording()
-            self.titleLabel.text = "Processing scan"
-            self.postToHeroku()
+            self.titleLabel.text = "Scan complete"
+            if (self.suspectedRecordingExists && self.contralateralRecordingExists) {
+               self.calculateTransmissionRateButton.isEnabled = true
+            }
         }
     }
 }
