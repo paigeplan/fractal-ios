@@ -32,7 +32,8 @@ class ScanViewController: UIViewController, AVAudioRecorderDelegate,
     @IBOutlet weak var playButton: UIButton!
     @IBOutlet weak var postButton: UIButton!
     @IBOutlet weak var calculateTransmissionRateButton: UIButton!
-    
+    @IBOutlet weak var suspectedScannedLabel: UILabel!
+    @IBOutlet weak var contralateralScannedLabel: UILabel!
     // the scan button should perform recording, playback, and post
     @IBOutlet weak var scanButton: UIButton!
     
@@ -47,8 +48,6 @@ class ScanViewController: UIViewController, AVAudioRecorderDelegate,
     var player : AVAudioPlayer?
     var recordingExists = false
     
-    var suspectedScanComplete = false
-    var contralateralScanComplete = false
     
     
 //    var recordingSession: AVAudioSession!
@@ -77,8 +76,8 @@ class ScanViewController: UIViewController, AVAudioRecorderDelegate,
         }
         print(getAudioFileUrl())
         
-        buttonStackView.arrangedSubviews[0].isHidden = true
-        buttonStackView.arrangedSubviews[1].isHidden = true
+//        buttonStackView.arrangedSubviews[0].isHidden = true
+//        buttonStackView.arrangedSubviews[1].isHidden = true
         
         // bluetooth
         if isUsingBluetooth {
@@ -175,7 +174,28 @@ class ScanViewController: UIViewController, AVAudioRecorderDelegate,
 //    }
     
     @IBAction func recordingTypeChanges(_ sender: UISegmentedControl) {
+        // TODO: refactor this
         currentScanMode = sender.titleForSegment(at: sender.selectedSegmentIndex)!
+        switch currentScanMode {
+        case "suspected":
+            if suspectedRecordingExists {
+                scanButton.setTitle("re-scan", for: .normal)
+                return
+            }
+            else {
+               scanButton.setTitle("scan", for: .normal)
+                return
+            }
+        default:
+            if contralateralRecordingExists {
+                scanButton.setTitle("re-scan", for: .normal)
+                return
+            }
+            else {
+                scanButton.setTitle("scan", for: .normal)
+                return
+            }
+        }
     }
     
     @IBAction func recordButtonWasPressed(_ sender: UIButton) {
@@ -189,27 +209,10 @@ class ScanViewController: UIViewController, AVAudioRecorderDelegate,
     }
     
     @IBAction func play(_ sender: UIButton) {
-        playSound()
+        //playSound()
     }
     
-    func playSound(){
-        let url = getAudioFileUrl()
-        
-        do {
-            // AVAudioPlayer setting up with the saved file URL
-            let sound = try AVAudioPlayer(contentsOf: url)
-            self.player = sound
-            
-            // Here conforming to AVAudioPlayerDelegate
-            sound.delegate = self
-            sound.prepareToPlay()
-            sound.play()
-            recordButton.isEnabled = false
-        } catch {
-            print("error loading file")
-            // couldn't load file :(
-        }
-    }
+ 
     
     func startRecording() {
         //1. create the session
@@ -251,9 +254,17 @@ class ScanViewController: UIViewController, AVAudioRecorderDelegate,
         switch currentScanMode {
         case "suspected":
             suspectedRecordingExists = true
+            suspectedScannedLabel.text = "scanned"
+            suspectedScannedLabel.textColor = teal
+            scanButton.setTitle("re-scan", for: .normal)
         default:
             contralateralRecordingExists = true
+            contralateralScannedLabel.text = "scanned"
+            contralateralScannedLabel.textColor = teal
         }
+        
+        scanButton.setTitle("re-scan", for: .normal)
+        scanButton.backgroundColor = teal
     }
     
     // Path for saving/retreiving the audio file
@@ -264,9 +275,7 @@ class ScanViewController: UIViewController, AVAudioRecorderDelegate,
         return audioUrl
     }
     
-    @IBAction func playbackAction(_ sender: UIButton) {
-        playSound()
-    }
+  
     
     func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
         if flag {
@@ -302,9 +311,12 @@ class ScanViewController: UIViewController, AVAudioRecorderDelegate,
                     return
                 }
                 DispatchQueue.main.async {
-                    self.imageView.contentMode = .scaleAspectFit
-                    self.imageView.image = UIImage(data: data)
-                    self.titleLabel.text = "Scan complete"
+                    
+                    let storyboard = UIStoryboard(name: "Main", bundle: nil)
+                    let resultsViewController = storyboard.instantiateViewController(withIdentifier: "ResultsViewController") as! ResultsViewController
+                    resultsViewController.resultsImage = UIImage(data: data)
+                    self.navigationController?.pushViewController(resultsViewController, animated: true)
+                    
                 }
             }
             task.resume()
@@ -322,8 +334,12 @@ class ScanViewController: UIViewController, AVAudioRecorderDelegate,
     
     @IBAction func scanButtonPressed(_ sender: UIButton) {
         titleLabel.text = "Scan in progress"
-        imageView.image = UIImage()
+        
         startRecording()
+        UIView.animate(withDuration: 0.5, animations: {
+        sender.setTitle("cancel", for: .normal)
+        sender.backgroundColor = .red
+        })
         
         if isUsingBluetooth {
             startSelectedSoundFile()
@@ -341,7 +357,12 @@ class ScanViewController: UIViewController, AVAudioRecorderDelegate,
             self.finishRecording()
             self.titleLabel.text = "Scan complete"
             if (self.suspectedRecordingExists && self.contralateralRecordingExists) {
-               self.calculateTransmissionRateButton.isEnabled = true
+               
+                UIView.animate(withDuration: 0.5, animations: {
+                    
+                self.calculateTransmissionRateButton.isHidden = false
+                
+                })
             }
         }
     }
